@@ -1,6 +1,6 @@
 #!/usr/bin/python
 import socket, threading
-import base64, json
+import base64, json, logging
 
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
@@ -25,6 +25,10 @@ class Server:
 		self.bob_public_key 	= open_key("public", 	"trent/bob_public")
 		self.alice_socket = None
 		self.bob_socket = None
+		logging.basicConfig(filename='trent/system.log', level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s\n')
+		logging.info("Server start")
+		
 		try:
 			self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 			self.sock.bind((self.HOST, self.SERV_PORT))
@@ -46,32 +50,51 @@ class Server:
 				data = b''
 				while len(data) < 1:
 					data = client_socket.recv(4096).decode()
-
-				print(f'debug: from {addr}')
 				data = json.loads(data)
+				logging.info(f'Get data from {addr}:\n{data}')
 				if data["type"] == "hello":
 					print("debug: hello code")
 					if data["data"] == "ALICE":
 						self.alice_socket = client_socket
-						self.alice_socket.send(f'Hi Alice.\n'.encode())
+						message = {
+							"type": "message",
+							"ind":	"Server",
+							"data":	f'Hi Alice'
+						}
+						self.alice_socket.send(json.dumps(message).encode())
+						logging.info(f'Send data to ALICE:\n{message}')
 					elif data["data"] == "BOB":
 						self.bob_socket = client_socket
-						self.bob_socket.send(f'Hi Bob.\n'.encode())
+						message = {
+							"type": "message",
+							"ind":	"Server",
+							"data":	f'Hi Bob'
+						}
+						self.bob_socket.send(json.dumps(message).encode())
+						logging.info(f'Send data to BOB:\n{message}')
 					else:
 						print("Unknown user!")
+						message = {
+							"type": "error",
+							"data": "Unknown user!"}
+						logging.error(f'Unknown user for hello: {data["data"]}')
+						client_socket.send(json.dumps(message).encode())
 						return
 				elif data["type"] == "get key":
 					print("debug: get key code")
 					if data["ind"] == "BOB":
 						public_key = self.bob_public_key
+						from_ = "ALICE" 
 					elif data["ind"] == "ALICE":
 						public_key = self.alice_public_key
+						from_ = "BOB"
 					else:
 						print("Unknown user!")
 						message = {
 							"type": "error",
 							"data": "Unknown user!"}
 						client_socket.send(json.dumps(message).encode())
+						logging.error(f'Unknown user for get key: {data["ind"]}')
 						return
 					
 					key_b64 = base64.b64encode(public_key.public_bytes(
@@ -84,20 +107,27 @@ class Server:
 						"key":  			key_b64
 					}
 					client_socket.send(json.dumps(message).encode())
+					logging.info(f'Send data to {from_}:\n{message}')
 				elif data["type"] == "message" or data["type"] == "session":
 					print("debug: message or session code")
 					if data["ind"] == "ALICE":
 						self.bob_socket.send(json.dumps(data).encode())
+						logging.info(f'Send data to {data["ind"]}:\n{message}')
 					elif data["ind"] == "BOB":
 						self.alice_socket.send(json.dumps(data).encode())
+						logging.info(f'Send data to {data["ind"]}:\n{message}')
+					else:
+						logging.error(f'Unknown sender!!')
 				elif data["type"] == "close":
 					print("debug: close code")
 					if client_socket == self.alice_socket:
 						self.alice_socket.close()
 						self.alice_socket = None
+						logging.info(f'ALICE close session')
 					else:
 						self.bob_socket.close()
 						self.bob_socket = None
+						logging.info(f'BOB close session')
 				elif data["type"] == "other":
 					print("debug: other code")
 					message = {
@@ -105,6 +135,7 @@ class Server:
 						"data": f'I KNOW ALL ABOUT YOU {addr}'
 					}
 					client_socket.send(json.dumps(message).encode())
+					logging.info(f'Unknown code from {addr}')
 
 		except:
 			client_socket.close()
@@ -118,5 +149,6 @@ class Server:
 		if self.bob_socket != None:
 			self.bob_socket.close()
 		self.sock.close()
+		logging.info(f'Close server')
 
 server = Server()
